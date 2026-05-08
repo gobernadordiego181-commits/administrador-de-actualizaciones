@@ -3,67 +3,145 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Editor de GitHub Móvil</title>
+    <title>Aura Manager: Editor + Creador</title>
     <style>
-        body { font-family: sans-serif; padding: 15px; background: #f4f4f9; line-height: 1.5; }
-        .section { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        input, select, textarea { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        button { background: #2ea44f; color: white; border: none; padding: 12px; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; }
-        button:disabled { background: #94d3a2; }
-        textarea { height: 200px; font-family: monospace; }
-        label { font-weight: bold; font-size: 0.9em; }
+        body { font-family: 'Segoe UI', sans-serif; padding: 15px; background: #0d1117; color: #c9d1d9; line-height: 1.5; }
+        .section { background: #161b22; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); border: 1px solid #30363d; }
+        h2, h3 { color: #58a6ff; text-align: center; margin-top: 0; }
+        input, select, textarea { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #30363d; border-radius: 4px; box-sizing: border-box; background: #0d1117; color: white; outline: none; }
+        input:focus { border-color: #58a6ff; }
+        
+        button { background: #238636; color: white; border: none; padding: 12px; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; margin-top: 5px; }
+        button:disabled { background: #1b4b24; color: #8b949e; }
+        .btn-blue { background: #1f6feb; }
+        .btn-red { background: #da3633; width: auto; padding: 5px 10px; font-size: 0.8em; margin-left: 10px; }
+        
+        textarea { height: 250px; font-family: monospace; font-size: 13px; }
+        label { font-weight: bold; font-size: 0.9em; color: #8b949e; }
+        .repo-item { display: flex; justify-content: space-between; align-items: center; background: #0d1117; padding: 8px; margin: 5px 0; border-radius: 4px; border: 1px solid #30363d; }
         .hidden { display: none; }
+        #status { font-size: 0.85em; text-align: center; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2>Gestor de Repositorios</h2>
+    <h2>Aura Manager Pro</h2>
 
     <div id="auth-section" class="section">
         <label>Pega tu Token de GitHub:</label>
         <input type="password" id="token" placeholder="ghp_xxxxxxxxxxxx">
-        <button onclick="loadRepos()">Conectar y Listar Repos</button>
+        <button onclick="loadRepos()">Conectar y Abrir Panel</button>
+    </div>
+
+    <div id="create-section" class="section hidden">
+        <h3>Crear Nuevo Proyecto</h3>
+        <input type="text" id="new-repo-name" placeholder="Nombre del nuevo repositorio">
+        <select id="new-repo-visibility">
+            <option value="false">Público</option>
+            <option value="true">Privado</option>
+        </select>
+        <button onclick="createNewRepo()">🚀 Crear Repositorio</button>
     </div>
 
     <div id="repo-section" class="section hidden">
-        <label>Selecciona un Repositorio:</label>
+        <h3>Tus Repositorios</h3>
+        <div id="repo-display-list"></div>
+        <hr style="border: 0.5px solid #30363d; margin: 20px 0;">
+        <label>Editar archivo en:</label>
         <select id="repo-list" onchange="resetEditor()"></select>
-        
-        <label>Ruta del archivo (ej: index.html):</label>
+        <label>Ruta del archivo:</label>
         <input type="text" id="file-path" value="index.html">
-        
-        <button onclick="loadFile()">Cargar Contenido</button>
+        <button class="btn-blue" onclick="loadFile()">📂 Cargar Contenido para Editar</button>
     </div>
 
     <div id="editor-section" class="section hidden">
-        <label>Contenido del archivo:</label>
-        <textarea id="editor" placeholder="Cargando código..."></textarea>
-        <button id="save-btn" onclick="saveFile()">Borrar anterior y Guardar Nuevo</button>
-        <p id="status" style="font-size: 0.8em; color: #666;"></p>
+        <label>Editor de Código:</label>
+        <textarea id="editor" placeholder="Escribe o pega tu código aquí..."></textarea>
+        <button id="save-btn" onclick="saveFile()">💾 Guardar Cambios en GitHub</button>
+        <p id="status"></p>
     </div>
 
     <script>
         let currentSha = "";
 
+        // CARGAR REPOS Y MOSTRAR LISTA CON BOTÓN ELIMINAR
         async function loadRepos() {
             const token = document.getElementById('token').value;
-            if (!token) return alert("Por favor, ingresa un token.");
+            if (!token) return alert("Ingresa un token.");
 
             try {
-                const response = await fetch('https://api.github.com/user/repos?per_page=100', {
+                const response = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
                     headers: { 'Authorization': `token ${token}` }
                 });
                 const repos = await response.json();
                 
+                // Llenar el select para editar
                 const select = document.getElementById('repo-list');
                 select.innerHTML = repos.map(r => `<option value="${r.full_name}">${r.name}</option>`).join('');
                 
+                // Mostrar lista con botones de eliminar
+                const displayList = document.getElementById('repo-display-list');
+                displayList.innerHTML = repos.map(r => `
+                    <div class="repo-item">
+                        <span>${r.name} ${r.private ? '🔒' : '🌍'}</span>
+                        <button class="btn-red" onclick="deleteRepo('${r.full_name}')">Eliminar</button>
+                    </div>
+                `).slice(0, 5).join('') + (repos.length > 5 ? '<p style="font-size:0.7em; text-align:center;">Mostrando últimos 5 actualizados</p>' : '');
+
                 document.getElementById('repo-section').classList.remove('hidden');
+                document.getElementById('create-section').classList.remove('hidden');
                 document.getElementById('auth-section').classList.add('hidden');
             } catch (e) {
-                alert("Error al conectar. Revisa tu token.");
+                alert("Error al conectar.");
             }
         }
+
+        // CREAR NUEVO REPOSITORIO
+        async function createNewRepo() {
+            const token = document.getElementById('token').value;
+            const name = document.getElementById('new-repo-name').value;
+            const isPrivate = document.getElementById('new-repo-visibility').value === "true";
+
+            if(!name) return alert("Ponle un nombre al repo");
+
+            try {
+                const response = await fetch('https://api.github.com/user/repos', {
+                    method: 'POST',
+                    headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name, private: isPrivate, auto_init: true })
+                });
+
+                if(response.ok) {
+                    alert("¡Repositorio creado con éxito!");
+                    document.getElementById('new-repo-name').value = "";
+                    loadRepos();
+                } else {
+                    alert("Error al crear. Quizá el nombre ya existe.");
+                }
+            } catch (e) { alert("Error de conexión"); }
+        }
+
+        // ELIMINAR REPOSITORIO
+        async function deleteRepo(fullName) {
+            if(!confirm(`¿Seguro que quieres borrar permanentemente ${fullName}?`)) return;
+            const token = document.getElementById('token').value;
+
+            try {
+                const response = await fetch(`https://api.github.com/repos/${fullName}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `token ${token}` }
+                });
+
+                if(response.status === 204) {
+                    alert("Eliminado correctamente.");
+                    loadRepos();
+                } else {
+                    alert("Error: Asegúrate de que tu token tenga permiso 'delete_repo'.");
+                }
+            } catch (e) { alert("Error al eliminar."); }
+        }
+
+        // --- LAS FUNCIONES DE TU EDITOR ORIGINAL ---
 
         async function loadFile() {
             const token = document.getElementById('token').value;
@@ -77,16 +155,17 @@
                 const data = await response.json();
                 
                 if (data.content) {
-                    // GitHub devuelve el contenido en Base64
-                    document.getElementById('editor').value = atob(data.content.replace(/\n/g, ''));
-                    currentSha = data.sha; // Necesario para actualizar
+                    document.getElementById('editor').value = decodeURIComponent(escape(atob(data.content.replace(/\n/g, ''))));
+                    currentSha = data.sha;
                     document.getElementById('editor-section').classList.remove('hidden');
+                    document.getElementById('status').innerText = "Archivo cargado.";
                 } else {
-                    alert("Archivo no encontrado o vacío.");
+                    alert("Archivo no encontrado. Si es nuevo, se creará al guardar.");
+                    document.getElementById('editor').value = "";
+                    currentSha = "";
+                    document.getElementById('editor-section').classList.remove('hidden');
                 }
-            } catch (e) {
-                alert("Error al cargar el archivo.");
-            }
+            } catch (e) { alert("Error al cargar."); }
         }
 
         async function saveFile() {
@@ -98,39 +177,39 @@
             const status = document.getElementById('status');
 
             btn.disabled = true;
-            status.innerText = "Guardando cambios...";
+            status.style.color = "#58a6ff";
+            status.innerText = "Guardando en GitHub...";
 
             try {
+                const bodyPayload = {
+                    message: "Update via Aura Manager",
+                    content: btoa(unescape(encodeURIComponent(content)))
+                };
+                if (currentSha) bodyPayload.sha = currentSha;
+
                 const response = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
                     method: 'PUT',
-                    headers: { 
-                        'Authorization': `token ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        message: "Actualización de código desde editor web",
-                        content: btoa(unescape(encodeURIComponent(content))), // Convertir a Base64
-                        sha: currentSha
-                    })
+                    headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(bodyPayload)
                 });
 
                 if (response.ok) {
                     const result = await response.json();
                     currentSha = result.content.sha;
+                    status.style.color = "#3fb950";
                     status.innerText = "¡Guardado con éxito!";
                 } else {
-                    status.innerText = "Error al guardar. Intenta de nuevo.";
+                    status.style.color = "#f85149";
+                    status.innerText = "Error al guardar.";
                 }
-            } catch (e) {
-                status.innerText = "Error de conexión.";
-            } finally {
-                btn.disabled = false;
-            }
+            } catch (e) { status.innerText = "Error de conexión."; }
+            finally { btn.disabled = false; }
         }
 
         function resetEditor() {
             document.getElementById('editor-section').classList.add('hidden');
             document.getElementById('editor').value = "";
+            document.getElementById('status').innerText = "";
         }
     </script>
 </body>
