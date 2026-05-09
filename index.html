@@ -11,7 +11,7 @@
         input, select, textarea { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
         button { background: #2ea44f; color: white; border: none; padding: 12px; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; margin-top: 5px; }
         button:disabled { background: #94d3a2; }
-        textarea { height: 250px; font-family: monospace; }
+        textarea { height: 250px; font-family: monospace; font-size: 13px; }
         label { font-weight: bold; font-size: 0.9em; }
         
         /* Estilos para la lista de borrado */
@@ -22,7 +22,7 @@
         
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
         .hidden { display: none; }
-        #status { font-weight: bold; text-align: center; margin-top: 10px; }
+        #status, #status-crear { font-weight: bold; text-align: center; margin-top: 10px; }
         .blue-btn { background: #0366d6; }
     </style>
 </head>
@@ -43,7 +43,10 @@
             <option value="false">Público</option>
             <option value="true">Privado</option>
         </select>
-        <button onclick="createNewRepo()">Crear Repositorio</button>
+        <label>Código inicial (index.html):</label>
+        <textarea id="new-repo-code" placeholder="Pega aquí el código que quieres que tenga el index.html..."></textarea>
+        <button id="btn-crear-nuevo" onclick="createNewRepo()">Crear Repositorio y Subir Código</button>
+        <p id="status-crear"></p>
     </div>
 
     <div id="manage-section" class="section hidden">
@@ -73,7 +76,6 @@
     <script>
         let currentSha = "";
 
-        // CARGA INICIAL DE DATOS
         async function loadInitialData() {
             const token = document.getElementById('token').value.trim();
             if (!token) return alert("Por favor, ingresa un token.");
@@ -92,11 +94,9 @@
                 });
                 const repos = await response.json();
                 
-                // Llenar select del editor
                 const select = document.getElementById('repo-list');
                 select.innerHTML = repos.map(r => `<option value="${r.full_name}">${r.name}</option>`).join('');
                 
-                // Llenar lista de borrado
                 const deleteList = document.getElementById('repo-delete-list');
                 deleteList.innerHTML = repos.map(r => `
                     <div class="repo-item">
@@ -104,71 +104,77 @@
                         <button id="del-${r.id}" class="btn-del" onclick="confirmDelete('${r.full_name}', '${r.id}')">ELIMINAR</button>
                     </div>
                 `).join('');
-
-            } catch (e) {
-                alert("Error al cargar repositorios.");
-            }
+            } catch (e) { alert("Error al cargar repositorios."); }
         }
 
-        // FUNCIÓN DE BORRADO EN DOS PASOS (LA QUE SÍ FUNCIONA)
         function confirmDelete(fullName, id) {
             const btn = document.getElementById(`del-${id}`);
             if (!btn.classList.contains('btn-confirm')) {
                 btn.innerText = "SÍ, BORRAR";
                 btn.classList.add('btn-confirm');
-                setTimeout(() => {
-                    if(btn) {
-                        btn.innerText = "ELIMINAR";
-                        btn.classList.remove('btn-confirm');
-                    }
-                }, 4000);
-            } else {
-                executeDelete(fullName, btn);
-            }
+                setTimeout(() => { if(btn) { btn.innerText = "ELIMINAR"; btn.classList.remove('btn-confirm'); } }, 4000);
+            } else { executeDelete(fullName, btn); }
         }
 
         async function executeDelete(fullName, btn) {
             const token = document.getElementById('token').value;
             btn.disabled = true;
-            btn.innerText = "BORRANDO...";
             try {
                 const res = await fetch(`https://api.github.com/repos/${fullName}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
                 });
-                if (res.status === 204) {
-                    await loadRepos(); // Recargar todo
-                } else {
-                    alert("No se pudo borrar. Revisa los permisos de tu token.");
-                    btn.disabled = false;
-                    btn.innerText = "ELIMINAR";
-                    btn.classList.remove('btn-confirm');
-                }
+                if (res.status === 204) { await loadRepos(); } 
+                else { alert("No se pudo borrar. Revisa permisos."); btn.disabled = false; }
             } catch (e) { alert("Error de conexión."); }
         }
 
-        // CREAR NUEVO REPO
+        // CREAR REPO + SUBIR INDEX.HTML
         async function createNewRepo() {
             const token = document.getElementById('token').value;
             const name = document.getElementById('new-repo-name').value.trim();
+            const code = document.getElementById('new-repo-code').value.trim();
             const isPrivate = document.getElementById('new-repo-vis').value === "true";
-            if(!name) return alert("Escribe un nombre");
+            const btn = document.getElementById('btn-crear-nuevo');
+            const status = document.getElementById('status-crear');
+
+            if(!name || !code) return alert("Escribe el nombre y pega el código.");
+
+            btn.disabled = true;
+            status.innerText = "⏳ Creando repositorio...";
 
             try {
-                const res = await fetch('https://api.github.com/user/repos', {
+                // 1. Crear el Repo
+                const resRepo = await fetch('https://api.github.com/user/repos', {
                     method: 'POST',
                     headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name, private: isPrivate, auto_init: true })
+                    body: JSON.stringify({ name: name, private: isPrivate })
                 });
-                if(res.ok) {
-                    document.getElementById('new-repo-name').value = "";
-                    await loadRepos();
-                    alert("¡Creado con éxito!");
-                } else { alert("Error al crear. El nombre ya existe."); }
-            } catch (e) { alert("Error de red."); }
+                const dataRepo = await resRepo.json();
+
+                if (resRepo.status === 201) {
+                    status.innerText = "⏳ Subiendo index.html...";
+                    
+                    // 2. Subir el archivo index.html
+                    const b64 = btoa(unescape(encodeURIComponent(code)));
+                    const resFile = await fetch(`https://api.github.com/repos/${dataRepo.owner.login}/${name}/contents/index.html`, {
+                        method: 'PUT',
+                        headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: "Primer despliegue", content: b64 })
+                    });
+
+                    if (resFile.ok) {
+                        status.innerText = "✅ ¡Creado y subido con éxito!";
+                        document.getElementById('new-repo-name').value = "";
+                        document.getElementById('new-repo-code').value = "";
+                        await loadRepos();
+                    } else { status.innerText = "❌ Repo creado, pero error al subir código."; }
+                } else { status.innerText = "❌ Error: " + dataRepo.message; }
+            } catch (e) { status.innerText = "❌ Error de conexión."; }
+            finally { btn.disabled = false; }
         }
 
-        // --- TU EDITOR ORIGINAL ---
+        // --- FUNCIONES DEL EDITOR ---
         async function loadFile() {
             const token = document.getElementById('token').value;
             const repo = document.getElementById('repo-list').value;
@@ -183,7 +189,7 @@
                     currentSha = data.sha;
                     document.getElementById('editor-section').classList.remove('hidden');
                 } else { alert("Archivo no encontrado."); }
-            } catch (e) { alert("Error al cargar el archivo."); }
+            } catch (e) { alert("Error al cargar."); }
         }
 
         async function saveFile() {
@@ -195,13 +201,13 @@
             const status = document.getElementById('status');
 
             btn.disabled = true;
-            status.innerText = "Guardando cambios...";
+            status.innerText = "Guardando...";
             try {
                 const response = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
                     method: 'PUT',
                     headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        message: "Update via Aura Gestor",
+                        message: "Update via Aura",
                         content: btoa(unescape(encodeURIComponent(content))),
                         sha: currentSha
                     })
@@ -209,9 +215,9 @@
                 if (response.ok) {
                     const result = await response.json();
                     currentSha = result.content.sha;
-                    status.innerText = "✅ ¡Guardado con éxito!";
-                } else { status.innerText = "❌ Error al guardar."; }
-            } catch (e) { status.innerText = "Error de conexión."; }
+                    status.innerText = "✅ ¡Guardado!";
+                } else { status.innerText = "❌ Error."; }
+            } catch (e) { status.innerText = "Error."; }
             finally { btn.disabled = false; }
         }
 
